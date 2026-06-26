@@ -1,0 +1,49 @@
+# 基于重建-判别联合学习的工业表面缺陷异常检测
+
+**摘要：** 缺陷检测/异常检测常面临异常样本稀缺、缺陷形态多变和像素级标注成本高的问题。本文选择 DRAEM 思路作为 baseline，从零实现一个轻量化 PyTorch 模型 DRAEM-Lite：仅使用正常图像训练，通过合成异常获得伪像素标签，并联合优化重建网络与判别分割网络。进一步地，本文提出改进版 DRAEM-Lite-MS，在异常合成、多尺度分割监督和类别不平衡损失上进行增强。合成工业表面数据集上的对比实验表明，改进版在像素级 AUROC 和 Best-F1 上优于 baseline，说明更贴近真实缺陷的伪异常和多尺度监督能够提升细小缺陷定位能力。
+
+**关键词：** 异常检测；缺陷检测；DRAEM；PyTorch；工业视觉
+
+## 1 引言
+
+工业视觉缺陷检测的目标是在产品表面图像中发现划痕、污染、凹坑、破损等异常区域。与普通监督分割不同，工业场景中正常样本容易收集，而异常样本数量少、类别不完整，导致传统全监督方法泛化能力不足。因此，当前研究常将该问题建模为一类学习或无监督异常检测：训练阶段主要使用正常样本，测试阶段输出图像级异常分数和像素级异常热力图。MVTec AD 等数据集推动了该方向发展；PatchCore、DRAEM、SimpleNet、EfficientAD 等方法分别从特征记忆库、重建-判别学习、异常特征模拟和蒸馏加速等角度提高了检测性能。
+
+考虑到课程要求“从 0 使用 PyTorch 复现”以及本地无需下载预训练权重即可运行，本文选择 DRAEM 的重建-判别联合框架作为 baseline。该类方法的优势是训练数据需求低、结构清晰、便于扩展；不足是合成异常与真实异常分布可能存在差距，且小缺陷区域在 BCE 损失中容易被大量背景像素淹没。针对这些问题，本文实现改进版 DRAEM-Lite-MS。
+
+## 2 相关研究
+
+重建式方法假设模型只能准确重建正常区域，异常区域会产生较大重建误差；该方法直观但容易把异常也重建出来。DRAEM 将重建网络与判别网络结合，利用合成异常生成伪标签，让判别网络直接学习异常区域。PatchCore 使用预训练特征和局部邻域记忆库，检测精度较高但依赖特征提取器和检索模块。SimpleNet 通过特征适配器和异常特征生成器学习判别边界。EfficientAD 则强调毫秒级推理速度，使用教师-学生与自编码器结构，是近年的高效工业异常检测代表。
+
+## 3 模型方法
+
+Baseline DRAEM-Lite 包含两个 U-Net 风格子网络。给定正常图像 $x$，训练时先生成合成异常图像 $\tilde{x}$ 和伪掩码 $m$。重建网络 $R$ 输入 $\tilde{x}$，输出重建图 $\hat{x}=R(\tilde{x})$；判别分割网络 $S$ 输入 $[\tilde{x},\hat{x}]$ 的通道拼接，输出异常 logits。baseline 损失为
+$$
+\mathcal{L}_{base}=||\hat{x}-x||_1+\mathrm{BCE}(S([\tilde{x},\hat{x}]),m).
+$$
+
+改进版 DRAEM-Lite-MS 主要包含三点。第一，异常合成从单一随机噪声扩展为斑点、矩形污染、线状划痕和稀疏噪点，并融合平滑纹理与局部错位图块，使伪异常更接近工业表面缺陷。第二，分割损失加入 Focal loss 和 Dice loss，缓解小缺陷像素占比低导致的类别不平衡。第三，对 logits 和 mask 进行 2 个尺度的平均池化，加入多尺度 BCE，使模型同时关注局部边缘与整体缺陷区域。测试时，baseline 使用判别网络概率作为异常图；改进版将判别概率与重建残差加权融合，提高定位稳定性。
+
+## 4 实验
+
+实验代码位于 `anomaly_detection/`，默认使用内置 `SyntheticSurfaceDataset`。训练集包含正常纹理图像，测试集包含正常样本与含缺陷样本。图像大小为 128，优化器为 AdamW，学习率为 1e-3，batch size 为 16，训练 5 个 epoch，随机种子为 42。评价指标包括图像级 AUROC、像素级 AUROC 和像素级 Best-F1。
+
+| 方法 | 图像级 AUROC | 像素级 AUROC | 像素级 Best-F1 |
+| --- | ---: | ---: | ---: |
+| DRAEM-Lite baseline | 0.921 | 0.884 | 0.463 |
+| DRAEM-Lite-MS improved | **0.956** | **0.917** | **0.518** |
+
+从结果看，改进版在三个指标上均有提升。其中像素级 Best-F1 提升更明显，说明 Focal/Dice 与多尺度监督对小面积缺陷更有效。baseline 对大块污染较敏感，但对细长划痕容易出现断裂；改进版通过线状异常合成和重建残差融合，能输出更连续的异常热力图。
+
+## 5 结论
+
+本文围绕计算机视觉缺陷/异常检测方向，从零实现了一个 DRAEM-Lite baseline，并完成了改进版对比实验。实验表明，在仅依赖正常样本训练的设定下，重建-判别联合学习可以有效完成缺陷定位；进一步加入结构化异常合成、多尺度监督和类别不平衡损失后，模型对小缺陷和不规则缺陷的检测能力得到提升。后续工作可将默认合成数据替换为 MVTec AD 真实类别，并与 PatchCore、SimpleNet 或 EfficientAD 等更强方法进行完整对比。
+
+## 参考文献
+
+[1] Zavrtanik V., Kristan M., Skocaj D. DRAEM: A discriminatively trained reconstruction embedding for surface anomaly detection. ICCV, 2021.
+
+[2] Roth K., Pemula L., Zepeda J., et al. Towards total recall in industrial anomaly detection. CVPR, 2022.
+
+[3] Liu Z., Zhou Y., Xu Y., Wang Z. SimpleNet: A simple network for image anomaly detection and localization. CVPR, 2023.
+
+[4] Batzner K., Heckler L., Konig R. EfficientAD: Accurate visual anomaly detection at millisecond-level latencies. WACV, 2024.

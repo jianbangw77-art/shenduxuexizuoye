@@ -1,4 +1,4 @@
-This is XeTeX, Version 3.141592653-2.6-0.999998 (TeX Live 2026) (preloaded format=xelatex 2026.6.20)  28 JUN 2026 14:45
+This is XeTeX, Version 3.141592653-2.6-0.999998 (TeX Live 2026) (preloaded format=xelatex 2026.6.20)  29 JUN 2026 08:10
 entering extended mode
  restricted \write18 enabled.
  file:line:error style messages enabled.
@@ -540,13 +540,13 @@ LaTeX Font Info:    Overwriting math alphabet `\mathtt' in version `bold'
 * (1in=72.27pt=25.4mm, 1cm=28.453pt)
 
 
-Underfull \vbox (badness 2478) has occurred while \output is active []
-
-
-
 LaTeX Font Warning: Font shape `OMX/cmex/m/n' in size <10.53937> not available
-(Font)              size <10.95> substituted on input line 29.
+(Font)              size <10.95> substituted on input line 31.
 
+[1
+
+
+]
 
 Package fontspec Info: 
 (fontspec)             Could not resolve font "FangSong/BI" (it probably
@@ -573,15 +573,12 @@ Package fontspec Info:
 (fontspec)             - 'normal' (m/n) with NFSS spec.:
 (fontspec)             <->"FangSong/OT:script=hani;language=dflt;"
 
-[1
 
-
-]
-Overfull \hbox (49.65834pt too wide) in paragraph at lines 41--49
- [][] 
+Underfull \hbox (badness 1303) in paragraph at lines 79--82
+[]\TU/lmr/m/n/10.53937 Zavrtanik, V., Kristan, M., and Skočaj, D.
  []
 
-[2
+[2] [3
 
 ] (./report.aux)
  ***********
@@ -593,14 +590,17 @@ L3 programming layer <2022/07/14>
 LaTeX Font Warning: Size substitutions with differences
 (Font)              up to 0.41063pt have occurred.
 
+
+LaTeX Warning: Label(s) may have changed. Rerun to get cross-references right.
+
  ) 
 Here is how much of TeX's memory you used:
- 7993 strings out of 467813
- 226206 string characters out of 5427148
- 669150 words of memory out of 5000000
- 36990 multiletter control sequences out of 15000+600000
- 631197 words of font info for 78 fonts, out of 8000000 for 9000
+ 8004 strings out of 467813
+ 225310 string characters out of 5427148
+ 671150 words of memory out of 5000000
+ 36985 multiletter control sequences out of 15000+600000
+ 633512 words of font info for 91 fonts, out of 8000000 for 9000
  1348 hyphenation exceptions out of 8191
- 93i,7n,111p,412b,321s stack positions out of 10000i,1000n,20000p,200000b,200000s
+ 93i,7n,111p,569b,321s stack positions out of 10000i,1000n,20000p,200000b,200000s
 
-Output written on report.pdf (2 pages).
+Output written on report.pdf (3 pages).

@@ -22,7 +22,11 @@ pip install -r requirements.txt
 python run_comparison.py --epochs 5 --image-size 128 --batch-size 16 --device cpu
 ```
 
-运行结果会保存到 `outputs/comparison/summary.json`，训练日志和模型权重会分别保存在 `outputs/baseline/` 与 `outputs/improved/`。
+运行结果会按训练轮数分组保存。例如 `--epochs 5` 会保存到 `outputs/comparison_5ep/`：
+
+- `outputs/comparison_5ep/baseline/`: baseline 训练日志、指标和模型权重
+- `outputs/comparison_5ep/improved/`: improved 训练日志、指标和模型权重
+- `outputs/comparison_5ep/summary.json`: 两个方法的最终指标汇总
 
 ## 单独训练
 
@@ -37,6 +41,8 @@ python run_experiment.py --variant improved --epochs 5 --image-size 128 --batch-
 
 ```powershell
 python run_experiment.py --dataset mvtec --data-root D:\datasets\mvtec\bottle --variant improved
+
+python run_comparison.py --dataset mvtec --data-root D:\Users\bang\Desktop\submission_materials\mvtec\bottle --epochs 50 --image-size 128 --batch-size 16 --output-dir outputs/mvtec_bottle_50ep
 ```
 
 期望结构：

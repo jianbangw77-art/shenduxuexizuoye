@@ -2,8 +2,8 @@
 \usepackage{geometry}
 \usepackage{amsmath}
 \usepackage{booktabs}
-\pagestyle{plain}
 \geometry{left=1.8cm,right=1.8cm,top=2.0cm,bottom=2.0cm}
+\pagestyle{plain}
 \title{基于重建-判别联合学习的工业表面缺陷异常检测}
 \author{姓名：王建帮~~学号：2025010139}
 \date{}
@@ -12,52 +12,89 @@
 \maketitle
 
 \begin{abstract}
-缺陷检测/异常检测常面临异常样本稀缺、缺陷形态多变和像素级标注成本高的问题。本文选择 DRAEM 思路作为 baseline，从零实现一个轻量化 PyTorch 模型 DRAEM-Lite：仅使用正常图像训练，通过合成异常获得伪像素标签，并联合优化重建网络与判别分割网络。进一步地，本文提出改进版 DRAEM-Lite-MS，在异常合成、多尺度分割监督和类别不平衡损失上进行增强。合成工业表面数据集上的对比实验表明，改进版在像素级 AUROC 和 Best-F1 上优于 baseline，说明更贴近真实缺陷的伪异常和多尺度监督能够提升细小缺陷定位能力。
+工业缺陷检测是计算机视觉在智能制造中的重要应用，其目标是在异常样本稀缺的条件下识别产品表面的划痕、污染、破损和结构异常。本文选择 DRAEM 的重建-判别联合思想作为 baseline，并使用 PyTorch 从零实现轻量化模型 DRAEM-Lite。该方法仅使用正常样本训练，通过合成异常构造伪像素标签，同时优化重建网络和判别分割网络。在此基础上，本文实现改进模型 DRAEM-Lite-MS，引入结构化异常合成、多尺度分割监督、Focal loss、Dice loss 以及重建残差融合。本文在 MVTec AD 数据集中的 bottle、cable 和 hazelnut 三个类别上进行实验。结果表明，改进方法在 bottle 和 cable 上取得明显提升，三类平均像素级 AUROC 从 0.628 提升到 0.704，平均 Best-F1 从 0.136 提升到 0.187，说明改进策略能够增强缺陷区域定位能力，但在 hazelnut 类别上仍存在泛化不足。
 \end{abstract}
 
-\noindent\textbf{关键词：} 异常检测；缺陷检测；DRAEM；PyTorch；工业视觉
+\noindent\textbf{关键词：} 缺陷检测；异常检测；DRAEM；MVTec AD；PyTorch
 
 \section{引言}
-工业视觉缺陷检测的目标是在产品表面图像中发现划痕、污染、凹坑、破损等异常区域。与普通监督分割不同，工业场景中正常样本容易收集，而异常样本数量少、类别不完整，导致传统全监督方法泛化能力不足。因此，当前研究常将该问题建模为一类学习或无监督异常检测：训练阶段主要使用正常样本，测试阶段输出图像级异常分数和像素级异常热力图。MVTec AD 等数据集推动了该方向发展；PatchCore、DRAEM、SimpleNet、EfficientAD 等方法分别从特征记忆库、重建-判别学习、异常特征模拟和蒸馏加速等角度提高了检测性能。
+工业视觉缺陷检测的任务是在产品表面图像中自动发现异常区域，例如瓶身污染、电缆破损、坚果裂纹等。与普通分类任务不同，工业场景中的异常样本通常数量少、形态复杂，并且真实生产过程中可能出现训练集中未见过的新型缺陷。因此，许多缺陷检测方法不依赖大量异常标注，而是将问题建模为异常检测：训练阶段主要使用正常样本，测试阶段输出图像级异常分数和像素级异常热力图。
 
-考虑到课程要求“从 0 使用 PyTorch 复现”以及本地无需下载预训练权重即可运行，本文选择 DRAEM 的重建-判别联合框架作为 baseline。该类方法的优势是训练数据需求低、结构清晰、便于扩展；不足是合成异常与真实异常分布可能存在差距，且小缺陷区域在 BCE 损失中容易被大量背景像素淹没。针对这些问题，本文实现改进版 DRAEM-Lite-MS。
+MVTec AD 是工业异常检测领域常用的数据集，包含多种物体和纹理类别，并提供图像级标签和像素级缺陷掩码。当前代表性方法包括 PatchCore、DRAEM、SimpleNet 和 EfficientAD 等。其中，PatchCore 依赖预训练特征和记忆库检索，性能较强但实现流程较复杂；DRAEM 通过合成异常和判别分割网络完成端到端训练，更适合作为课程作业中的复现对象。本文选择 DRAEM 思路作为 baseline，从零实现模型、数据读取、损失函数、训练流程和评价指标，并进一步设计改进策略进行对比实验。
 
 \section{相关研究}
-重建式方法假设模型只能准确重建正常区域，异常区域会产生较大重建误差；该方法直观但容易把异常也重建出来。DRAEM 将重建网络与判别网络结合，利用合成异常生成伪标签，让判别网络直接学习异常区域。PatchCore 使用预训练特征和局部邻域记忆库，检测精度较高但依赖特征提取器和检索模块。SimpleNet 通过特征适配器和异常特征生成器学习判别边界。EfficientAD 则强调毫秒级推理速度，使用教师-学生与自编码器结构，是近年的高效工业异常检测代表。
+重建式异常检测方法通常假设模型只学习正常样本分布，因此异常区域会产生较大重建误差。这类方法结构清晰，但当重建网络表达能力较强时，异常区域也可能被较好重建，导致异常分数不稳定。DRAEM 在重建网络后加入判别分割网络，通过合成异常生成伪掩码，使模型不仅学习正常图像重建，还直接学习异常区域定位。SimpleNet 通过异常特征模拟学习正常与异常之间的判别边界。EfficientAD 则强调工业部署效率，使用教师-学生网络和自编码器结构获得较快推理速度。
+
+本文复现的 DRAEM-Lite 保留了 DRAEM 的核心思想，即正常样本训练、合成异常构造伪标签、重建网络与分割网络联合优化。为了便于实验，模型采用轻量 U-Net 结构，不依赖预训练主干网络。
 
 \section{模型方法}
-Baseline DRAEM-Lite 包含两个 U-Net 风格子网络。给定正常图像 $x$，训练时先生成合成异常图像 $\tilde{x}$ 和伪掩码 $m$。重建网络 $R$ 输入 $\tilde{x}$，输出重建图 $\hat{x}=R(\tilde{x})$；判别分割网络 $S$ 输入 $[\tilde{x},\hat{x}]$ 的通道拼接，输出异常 logits。baseline 损失为：
+Baseline DRAEM-Lite 包含两个 U-Net 风格子网络。给定正常图像 $x$，训练时首先生成合成异常图像 $\tilde{x}$ 和伪掩码 $m$。重建网络 $R$ 输入 $\tilde{x}$，输出重建图像 $\hat{x}=R(\tilde{x})$；判别分割网络 $S$ 将 $\tilde{x}$ 和 $\hat{x}$ 在通道维度拼接，输出异常区域 logits。baseline 损失函数为：
 \[
-\mathcal{L}_{base}=||\hat{x}-x||_1+\mathrm{BCE}(S([\tilde{x},\hat{x}]),m).
+\mathcal{L}_{base}=||\hat{x}-x||_1+
+\mathrm{BCE}(S([\tilde{x},\hat{x}]),m).
 \]
+其中，第一项约束重建图接近正常样本，第二项约束分割网络识别合成异常区域。
 
-改进版 DRAEM-Lite-MS 主要包含三点。第一，异常合成从单一随机噪声扩展为斑点、矩形污染、线状划痕和稀疏噪点，并融合平滑纹理与局部错位图块，使伪异常更接近工业表面缺陷。第二，分割损失加入 Focal loss 和 Dice loss，缓解小缺陷像素占比低导致的类别不平衡。第三，对 logits 和 mask 进行两个尺度的平均池化，加入多尺度 BCE，使模型同时关注局部边缘与整体缺陷区域。测试时，baseline 使用判别网络概率作为异常图；改进版将判别概率与重建残差加权融合，提高定位稳定性。
+改进版 DRAEM-Lite-MS 在 baseline 上加入三点改动。第一，异常合成由简单随机噪声扩展为斑点、矩形污染、线状划痕和稀疏噪点，并融合平滑纹理与局部错位图块，使伪异常更接近工业缺陷形态。第二，在分割损失中加入 Focal loss 和 Dice loss，以缓解异常像素占比低带来的类别不平衡问题。第三，引入多尺度 BCE，对 logits 和 mask 进行不同尺度的平均池化，使模型同时关注局部边缘和整体缺陷区域。测试时，baseline 直接使用分割概率作为异常图；改进版将分割概率与重建残差加权融合，得到最终异常热力图。
 
-\section{实验}
-实验代码位于 \texttt{anomaly\_detection/}，默认使用内置 \texttt{SyntheticSurfaceDataset}。训练集包含正常纹理图像，测试集包含正常样本与含缺陷样本。图像大小为 128，优化器为 AdamW，学习率为 $10^{-3}$，batch size 为 16，训练 5 个 epoch，随机种子为 42。评价指标包括图像级 AUROC、像素级 AUROC 和像素级 Best-F1。
+\section{实验设置}
+实验使用 MVTec AD 数据集中的 bottle、cable 和 hazelnut 三个类别。每个类别的训练集只使用 \texttt{train/good} 中的正常图像；测试集包含 \texttt{test/good} 和不同缺陷类型图像，像素级评价使用 \texttt{ground\_truth} 中的缺陷掩码。输入图像大小设为 $128\times128$，优化器为 AdamW，学习率为 $10^{-3}$，batch size 为 16，baseline 和 improved 均训练 50 个 epoch。
 
+评价指标包括图像级 AUROC、像素级 AUROC 和像素级 Best-F1。图像级 AUROC 衡量模型区分正常图像和异常图像的能力；像素级 AUROC 和 Best-F1 衡量异常区域定位效果。对于缺陷检测任务，像素级指标更能反映模型是否真正找到了缺陷位置。
+
+\section{实验结果与分析}
 \begin{table}[h]
 \centering
-\begin{tabular}{lccc}
+\small
+\setlength{\tabcolsep}{3pt}
+\begin{tabular}{llccc}
 \toprule
-方法 & 图像 AUROC & 像素 AUROC & Best-F1 \\
+类别 & 方法 & 图像 & 像素 & F1 \\
 \midrule
-DRAEM-Lite & 0.875 & 0.561 & 0.131 \\
-DRAEM-Lite-MS & \textbf{0.996} & \textbf{0.963} & \textbf{0.886} \\
+bottle & Base & 0.812 & 0.488 & 0.109 \\
+bottle & MS & \textbf{0.952} & \textbf{0.583} & \textbf{0.186} \\
+cable & Base & 0.463 & 0.601 & 0.057 \\
+cable & MS & \textbf{0.575} & \textbf{0.744} & \textbf{0.150} \\
+hazelnut & Base & \textbf{0.986} & \textbf{0.797} & \textbf{0.242} \\
+hazelnut & MS & 0.645 & 0.786 & 0.226 \\
+\midrule
+平均 & Base & \textbf{0.754} & 0.628 & 0.136 \\
+平均 & MS & 0.724 & \textbf{0.704} & \textbf{0.187} \\
 \bottomrule
 \end{tabular}
 \end{table}
 
-从结果看，改进版在三个指标上均有提升。其中像素级 Best-F1 提升更明显，说明 Focal/Dice 与多尺度监督对小面积缺陷更有效。baseline 对大块污染较敏感，但对细长划痕容易出现断裂；改进版通过线状异常合成和重建残差融合，能输出更连续的异常热力图。
+从结果可以看出，改进版在 bottle 和 cable 两个类别上均取得提升。对于 bottle，图像级 AUROC 从 0.812 提升到 0.952，像素级 AUROC 从 0.488 提升到 0.583，Best-F1 从 0.109 提升到 0.186。该结果说明结构化异常合成和重建残差融合可以帮助模型更稳定地区分瓶身异常。对于 cable，baseline 的图像级 AUROC 只有 0.463，说明其图像级异常评分较弱；改进后提升到 0.575，像素级 AUROC 也从 0.601 提升到 0.744，Best-F1 从 0.057 提升到 0.150，说明多尺度监督对电缆中细长、局部的异常区域更有帮助。
+
+hazelnut 类别的结果与前两个类别不同。baseline 的图像级 AUROC 达到 0.986，像素级 AUROC 为 0.797，Best-F1 为 0.242；改进版反而下降到 0.645、0.786 和 0.226。这说明改进策略并非在所有类别上都稳定有效。原因可能是 hazelnut 的正常纹理和真实缺陷形态与本文合成异常存在差异，改进版在训练中过度依赖合成异常模式，导致图像级异常分数泛化下降。此外，hazelnut 的表面纹理本身较复杂，重建残差可能会把部分正常纹理误判为异常，从而影响最终评分。
+
+总体来看，三类平均图像级 AUROC 从 0.754 降至 0.724，但平均像素级 AUROC 从 0.628 提升到 0.704，平均 Best-F1 从 0.136 提升到 0.187。该结果表明，本文改进方法更主要的收益体现在像素级缺陷定位，而不是所有类别上的图像级判别。对于工业缺陷检测任务而言，定位能力通常比单纯判断是否异常更重要，因此该改进仍具有一定价值。不过，实验也说明合成异常策略需要根据类别纹理和缺陷形态进一步自适应调整。
 
 \section{结论}
-本文围绕计算机视觉缺陷/异常检测方向，从零实现了一个 DRAEM-Lite baseline，并完成了改进版对比实验。实验表明，在仅依赖正常样本训练的设定下，重建-判别联合学习可以有效完成缺陷定位；进一步加入结构化异常合成、多尺度监督和类别不平衡损失后，模型对小缺陷和不规则缺陷的检测能力得到提升。后续工作可将默认合成数据替换为 MVTec AD 真实类别，并与 PatchCore、SimpleNet 或 EfficientAD 等更强方法进行完整对比。
+本文围绕计算机视觉中的工业缺陷/异常检测任务，从零实现了基于 DRAEM 思路的 DRAEM-Lite baseline，并提出加入结构化异常合成、多尺度监督、Focal loss、Dice loss 和重建残差融合的改进版 DRAEM-Lite-MS。在 MVTec AD 的 bottle、cable 和 hazelnut 三个类别上，改进版在 bottle 与 cable 上提升明显，并提高了三类平均像素级 AUROC 和 Best-F1，说明其对缺陷区域定位有积极作用。但 hazelnut 上图像级 AUROC 明显下降，表明合成异常与真实缺陷分布不一致时，模型仍可能出现泛化不足。后续可进一步引入更接近真实缺陷的异常合成策略，或结合预训练特征方法提升跨类别稳定性。
 
 \begin{thebibliography}{9}
-\bibitem{draem} Zavrtanik V., Kristan M., Skocaj D. DRAEM: A discriminatively trained reconstruction embedding for surface anomaly detection. ICCV, 2021.
-\bibitem{patchcore} Roth K., Pemula L., Zepeda J., et al. Towards total recall in industrial anomaly detection. CVPR, 2022.
-\bibitem{simplenet} Liu Z., Zhou Y., Xu Y., Wang Z. SimpleNet: A simple network for image anomaly detection and localization. CVPR, 2023.
-\bibitem{efficientad} Batzner K., Heckler L., Konig R. EfficientAD: Accurate visual anomaly detection at millisecond-level latencies. WACV, 2024.
+
+\bibitem{zavrtanik2021draem}
+Zavrtanik, V., Kristan, M., and Sko{\v{c}}aj, D.
+DRAEM: A discriminatively trained reconstruction embedding for surface anomaly detection.
+In \textit{Proceedings of the IEEE/CVF International Conference on Computer Vision}, pages 8330--8339, 2021.
+
+\bibitem{liu2023simplenet}
+Liu, Z., Zhou, Y., Xu, Y., and Wang, Z.
+SimpleNet: A simple network for image anomaly detection and localization.
+In \textit{Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition}, pages 20402--20411, 2023.
+
+\bibitem{batzner2024efficientad}
+Batzner, K., Heckler, L., and K{\"o}nig, R.
+EfficientAD: Accurate visual anomaly detection at millisecond-level latencies.
+In \textit{Proceedings of the IEEE/CVF Winter Conference on Applications of Computer Vision}, pages 128--138, 2024.
+
+\bibitem{roth2022towards}
+Roth, K., Pemula, L., Zepeda, J., Sch{\"o}lkopf, B., Brox, T., and Gehler, P.
+Towards total recall in industrial anomaly detection.
+In \textit{Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition}, pages 14318--14328, 2022.
+
 \end{thebibliography}
 
 \end{document}
